@@ -1,0 +1,25 @@
+# Global owners
+* @Stremax-Team/core-maintainers
+
+# Core language implementation
+/src/core/ @Stremax-Team/language-team
+/src/compiler/ @Stremax-Team/compiler-team
+/src/runtime/ @Stremax-Team/runtime-team
+
+# Documentation
+/docs/ @Stremax-Team/docs-team
+/website/ @Stremax-Team/docs-team
+
+# Build and CI
+/.github/ @Stremax-Team/devops
+/scripts/ @Stremax-Team/devops
+
+# Tests
+/tests/ @Stremax-Team/qa-team
+
+# Security-critical components
+/src/security/ @Stremax-Team/security-team
+**/crypto/ @Stremax-Team/security-team
+
+# Tools and utilities
+/tools/ @Stremax-Team/tools-team 
