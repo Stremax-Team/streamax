@@ -1,0 +1,67 @@
+version: 2
+updates:
+  # Rust dependencies (Cargo)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    target-branch: "main"
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "cargo"
+      include: "scope"
+    reviewers:
+      - "Stremax-Team/core-maintainers"
+    assignees:
+      - "Stremax-Team/devops"
+    groups:
+      rust-core:
+        patterns:
+          - "serde*"
+          - "tokio*"
+          - "async-*"
+      blockchain:
+        patterns:
+          - "ethers*"
+          - "bitcoin*"
+          - "ton*"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    target-branch: "main"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    reviewers:
+      - "Stremax-Team/devops"
+
+  # Documentation dependencies
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "website"
+    reviewers:
+      - "Stremax-Team/docs-team"
+    groups:
+      website-deps:
+        patterns:
+          - "*" 
