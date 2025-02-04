@@ -23,6 +23,11 @@
     --text: #2D3436;
     --text-light: #636E72;
     
+    /* Blur Effects */
+    --blur-sm: blur(4px);
+    --blur-md: blur(8px);
+    --blur-lg: blur(16px);
+    
     /* Spacing System */
     --spacing-xs: 0.25rem;
     --spacing-sm: 0.5rem;
@@ -41,14 +46,15 @@
     --font-size-3xl: 3rem;
     
     /* Animations */
-    --transition-fast: 150ms ease;
-    --transition-normal: 300ms ease;
-    --transition-slow: 500ms ease;
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-normal: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 500ms cubic-bezier(0.4, 0, 0.2, 1);
     
     /* Shadows */
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
     --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+    --shadow-hover: 0 20px 25px rgba(0, 0, 0, 0.15);
 }
 
 /* Dark Mode Colors */
@@ -58,6 +64,9 @@
         --surface: #2D2E32;
         --text: #FFFFFF;
         --text-light: #A0A0A0;
+        --surface-rgb: 45, 46, 50;
+        --text-rgb: 255, 255, 255;
+        --primary-rgb: 0, 184, 148;
     }
 }
 
@@ -78,13 +87,24 @@ body {
 }
 
 /* Navigation */
+.nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    backdrop-filter: var(--blur-md);
+    -webkit-backdrop-filter: var(--blur-md);
+    background-color: rgba(var(--surface-rgb), 0.8);
+    border-bottom: 1px solid rgba(var(--text-rgb), 0.1);
+}
+
 .nav-content {
     display: flex;
     justify-content: space-between;
     align-items: center;
     height: 80px;
-    background-color: var(--surface);
-    box-shadow: var(--shadow-sm);
+    padding: 0 var(--spacing-lg);
 }
 
 .logo {
@@ -99,6 +119,29 @@ body {
 
 .logo img {
     height: 40px;
+}
+
+.nav-list {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.nav-list a {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 500;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: 6px;
+    transition: var(--transition-fast);
+}
+
+.nav-list a:hover {
+    color: var(--primary);
+    background-color: rgba(var(--primary-rgb), 0.1);
 }
 
 /* Hero Section */
@@ -196,20 +239,29 @@ pre {
 }
 
 .feature-card {
-    background: var(--bg);
+    background: var(--surface);
     padding: var(--spacing-lg);
-    border-radius: var(--radius-md);
+    border-radius: 12px;
     text-align: center;
-    transition: transform 0.2s;
+    transition: all var(--transition-normal);
+    border: 1px solid rgba(var(--text-rgb), 0.1);
+    will-change: transform, box-shadow;
 }
 
 .feature-card:hover {
-    transform: translateY(-4px);
+    transform: translateY(-8px);
+    box-shadow: var(--shadow-hover);
 }
 
 .feature-icon {
     font-size: 2.5rem;
     margin-bottom: var(--spacing-md);
+    color: var(--primary);
+    transition: var(--transition-normal);
+}
+
+.feature-card:hover .feature-icon {
+    transform: scale(1.1);
 }
 
 /* Getting Started */
@@ -355,11 +407,21 @@ pre {
     .nav-content {
         flex-direction: column;
         height: auto;
-        padding: var(--spacing-md) 0;
+        padding: var(--spacing-sm);
     }
     
     .nav-list {
-        margin-top: var(--spacing-md);
+        display: none; /* To be replaced with mobile menu */
+    }
+    
+    .mobile-menu-button {
+        display: block;
+        font-size: var(--font-size-xl);
+        color: var(--text);
+        background: none;
+        border: none;
+        padding: var(--spacing-xs);
+        cursor: pointer;
     }
     
     .footer-content {
@@ -374,17 +436,10 @@ pre {
     }
 }
 
-/* Dark Mode Enhancements */
-@media (prefers-color-scheme: dark) {
-    .hero {
-        background: linear-gradient(135deg, var(--primary-dark) 0%, var(--secondary) 100%);
-    }
-    
-    .hero-code {
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }
-    
-    .feature-card, .step {
-        background: var(--bg);
+/* Performance Optimizations */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation: none !important;
+        transition: none !important;
     }
 } 
