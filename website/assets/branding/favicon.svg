@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <!-- Definitions for reusable elements -->
+    <defs>
+        <!-- Gradient for modern look -->
+        <linearGradient id="primary-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#00B894"/>
+            <stop offset="100%" style="stop-color:#00CEC9"/>
+        </linearGradient>
+        
+        <!-- Shadow filter -->
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="0.5"/>
+            <feOffset dx="0" dy="1"/>
+            <feComponentTransfer>
+                <feFuncA type="linear" slope="0.3"/>
+            </feComponentTransfer>
+            <feMerge>
+                <feMergeNode/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+    </defs>
+
+    <!-- Enhanced background with subtle gradient -->
+    <rect x="0" y="0" width="32" height="32" rx="6" 
+          fill="#FFFFFF" 
+          filter="url(#shadow)"/>
+    
+    <!-- Main hexagon shape with improved proportions -->
+    <polygon 
+        points="16,16 21,11 27,11 32,16 27,21 21,21"
+        fill="url(#primary-gradient)"
+        stroke="#2D3436"
+        stroke-width="1.5"
+        opacity="0.9"
+    />
+    
+    <!-- Connected hexagons with dynamic styling -->
+    <polygon 
+        points="10,16 14,13 18,13 22,16 18,19 14,19"
+        fill="url(#primary-gradient)"
+        stroke="#2D3436"
+        stroke-width="1"
+        opacity="0.8"
+    />
+    
+    <polygon 
+        points="4,16 8,13 12,13 16,16 12,19 8,19"
+        fill="url(#primary-gradient)"
+        stroke="#2D3436"
+        stroke-width="1"
+        opacity="0.7"
+    />
+    
+    <!-- Enhanced "S" with better typography -->
+    <text x="22.5" y="18.5" 
+        font-family="Arial, sans-serif" 
+        font-size="9" 
+        font-weight="bold"
+        fill="#2D3436"
+        text-anchor="middle"
+        dominant-baseline="middle">
+        S
+    </text>
+</svg>
