@@ -1,0 +1,95 @@
+[package]
+name = "stremax"
+version = "0.1.0"
+edition = "2021"
+authors = ["Stremax Team"]
+description = "A lightweight, secure blockchain programming language"
+license = "Apache-2.0"
+homepage = "https://stremax.io"
+repository = "https://github.com/stremax-team/stremax"
+documentation = "https://docs.stremax.io"
+readme = "README.md"
+keywords = ["blockchain", "smart-contracts", "programming-language", "crypto", "zero-knowledge"]
+categories = ["cryptography", "development-tools", "programming-languages", "blockchain"]
+exclude = [
+    "website/*",
+    "docs/drafts/*",
+    "*.log",
+    "target/*",
+    ".github/*",
+    "tests/fixtures/*"
+]
+
+[dependencies]
+# Parser and lexer
+lalrpop-util = "0.20"
+logos = "0.13"
+chumsky = "0.9"
+
+# Cryptography and blockchain
+sha2 = "0.10"
+ed25519-dalek = "2.0"
+merkle_tree = "0.3"
+bitcoin = { version = "0.31", features = ["rand"] }
+ethers = { version = "2.0", features = ["legacy"] }
+ton = "0.10"
+
+# Runtime and VM
+cranelift = "0.100"
+cranelift-module = "0.100"
+cranelift-jit = "0.100"
+wasmtime = { version = "14.0", features = ["cranelift"] }
+
+# Memory management and concurrency
+crossbeam = { version = "0.8", features = ["all"] }
+parking_lot = "0.12"
+
+# Standard library support
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.35", features = ["full"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging and debugging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[build-dependencies]
+lalrpop = "0.20"
+build-deps = "0.1"
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.4"
+test-case = "3.3"
+pretty_assertions = "1.4"
+
+[[bin]]
+name = "strxc"
+path = "src/compiler/main.rs"
+
+[[bin]]
+name = "strxvm"
+path = "src/vm/main.rs"
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+debug = false
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[workspace]
+members = [
+    "crates/*"
+] 

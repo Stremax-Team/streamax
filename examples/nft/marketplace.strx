@@ -1,0 +1,457 @@
+use std::collections::Map;
+use std::time::{Duration, Timestamp};
+
+/// @title NFT Marketplace
+/// @notice Implements a marketplace for NFT trading with auctions and offers
+contract NFTMarketplace {
+    // Configuration
+    state platform_fee: u256;  // basis points
+    state fee_recipient: Address;
+    
+    // Listing state
+    state listings: Map<ListingId, Listing>;
+    state auctions: Map<ListingId, Auction>;
+    state offers: Map<ListingId, Vec<Offer>>;
+    state listing_count: u256;
+    
+    // Custom types
+    type ListingId = u256;
+    type NFTContract = Address;
+    type TokenId = u256;
+    
+    struct Listing {
+        seller: Address,
+        nft_contract: NFTContract,
+        token_id: TokenId,
+        price: u256,
+        is_active: bool,
+        end_time: Option<Timestamp>,
+    }
+    
+    struct Auction {
+        highest_bidder: Address,
+        highest_bid: u256,
+        min_bid: u256,
+        increment: u256,
+        end_time: Timestamp,
+        is_active: bool,
+    }
+    
+    struct Offer {
+        buyer: Address,
+        price: u256,
+        expiration: Timestamp,
+    }
+    
+    // Events
+    event ListingCreated(
+        listing_id: ListingId,
+        seller: Address,
+        nft_contract: NFTContract,
+        token_id: TokenId,
+        price: u256
+    );
+    
+    event ListingSold(
+        listing_id: ListingId,
+        buyer: Address,
+        price: u256
+    );
+    
+    event AuctionCreated(
+        listing_id: ListingId,
+        min_bid: u256,
+        duration: Duration
+    );
+    
+    event BidPlaced(
+        listing_id: ListingId,
+        bidder: Address,
+        amount: u256
+    );
+    
+    event OfferMade(
+        listing_id: ListingId,
+        buyer: Address,
+        price: u256,
+        expiration: Timestamp
+    );
+    
+    // Constructor
+    fn init(platform_fee: u256, fee_recipient: Address) {
+        ensure!(platform_fee <= 1000, "Fee too high");  // max 10%
+        
+        self.platform_fee = platform_fee;
+        self.fee_recipient = fee_recipient;
+    }
+    
+    // Listing functions
+    @no_reentry
+    mut fn create_listing(
+        nft_contract: NFTContract,
+        token_id: TokenId,
+        price: u256,
+        duration: Option<Duration>
+    ) -> Result<ListingId, Error> {
+        ensure!(price > 0, "Invalid price");
+        
+        // Transfer NFT to marketplace
+        nft_contract.transfer_from(
+            msg.sender,
+            self,
+            token_id
+        )?;
+        
+        // Create listing
+        listing_count += 1;
+        let listing_id = listing_count;
+        
+        listings[listing_id] = Listing {
+            seller: msg.sender,
+            nft_contract: nft_contract,
+            token_id: token_id,
+            price: price,
+            is_active: true,
+            end_time: duration.map(|d| block.timestamp + d),
+        };
+        
+        emit ListingCreated(
+            listing_id,
+            msg.sender,
+            nft_contract,
+            token_id,
+            price
+        );
+        
+        Ok(listing_id)
+    }
+    
+    @no_reentry
+    mut fn buy_listing(listing_id: ListingId) -> Result<(), Error> {
+        let listing = listings[listing_id];
+        ensure!(listing.is_active, "Listing not active");
+        ensure!(msg.value >= listing.price, "Insufficient payment");
+        
+        if let Some(end_time) = listing.end_time {
+            ensure!(block.timestamp <= end_time, "Listing expired");
+        }
+        
+        // Calculate fees
+        let platform_fee_amount = (msg.value * platform_fee) / 10000;
+        let royalty_amount = calculate_royalty(
+            listing.nft_contract,
+            listing.token_id,
+            msg.value
+        );
+        let seller_amount = msg.value - platform_fee_amount - royalty_amount;
+        
+        // Transfer payments
+        transfer_eth(fee_recipient, platform_fee_amount);
+        transfer_eth(listing.seller, seller_amount);
+        
+        if royalty_amount > 0 {
+            let (recipient, _) = listing.nft_contract.get_royalty_info(
+                listing.token_id,
+                msg.value
+            );
+            transfer_eth(recipient, royalty_amount);
+        }
+        
+        // Transfer NFT
+        listing.nft_contract.transfer_from(
+            self,
+            msg.sender,
+            listing.token_id
+        )?;
+        
+        // Update state
+        listing.is_active = false;
+        
+        emit ListingSold(listing_id, msg.sender, msg.value);
+        Ok(())
+    }
+    
+    // Auction functions
+    @no_reentry
+    mut fn create_auction(
+        nft_contract: NFTContract,
+        token_id: TokenId,
+        min_bid: u256,
+        increment: u256,
+        duration: Duration
+    ) -> Result<ListingId, Error> {
+        ensure!(min_bid > 0, "Invalid min bid");
+        ensure!(increment > 0, "Invalid increment");
+        ensure!(duration >= Duration::from_days(1), "Duration too short");
+        
+        // Create listing first
+        let listing_id = create_listing(
+            nft_contract,
+            token_id,
+            min_bid,
+            Some(duration)
+        )?;
+        
+        // Create auction
+        auctions[listing_id] = Auction {
+            highest_bidder: Address::zero(),
+            highest_bid: 0,
+            min_bid: min_bid,
+            increment: increment,
+            end_time: block.timestamp + duration,
+            is_active: true,
+        };
+        
+        emit AuctionCreated(listing_id, min_bid, duration);
+        Ok(listing_id)
+    }
+    
+    @no_reentry
+    mut fn place_bid(listing_id: ListingId) -> Result<(), Error> {
+        let auction = auctions[listing_id];
+        ensure!(auction.is_active, "Auction not active");
+        ensure!(block.timestamp < auction.end_time, "Auction ended");
+        
+        let bid_amount = msg.value;
+        ensure!(
+            bid_amount >= auction.min_bid &&
+            bid_amount >= auction.highest_bid + auction.increment,
+            "Bid too low"
+        );
+        
+        // Refund previous bidder
+        if auction.highest_bidder != Address::zero() {
+            transfer_eth(auction.highest_bidder, auction.highest_bid);
+        }
+        
+        // Update auction
+        auction.highest_bidder = msg.sender;
+        auction.highest_bid = bid_amount;
+        
+        emit BidPlaced(listing_id, msg.sender, bid_amount);
+        Ok(())
+    }
+    
+    @no_reentry
+    mut fn end_auction(listing_id: ListingId) -> Result<(), Error> {
+        let auction = auctions[listing_id];
+        ensure!(auction.is_active, "Auction not active");
+        ensure!(block.timestamp >= auction.end_time, "Auction not ended");
+        
+        let listing = listings[listing_id];
+        
+        if auction.highest_bidder != Address::zero() {
+            // Calculate fees
+            let platform_fee_amount = (auction.highest_bid * platform_fee) / 10000;
+            let royalty_amount = calculate_royalty(
+                listing.nft_contract,
+                listing.token_id,
+                auction.highest_bid
+            );
+            let seller_amount = auction.highest_bid - platform_fee_amount - royalty_amount;
+            
+            // Transfer payments
+            transfer_eth(fee_recipient, platform_fee_amount);
+            transfer_eth(listing.seller, seller_amount);
+            
+            if royalty_amount > 0 {
+                let (recipient, _) = listing.nft_contract.get_royalty_info(
+                    listing.token_id,
+                    auction.highest_bid
+                );
+                transfer_eth(recipient, royalty_amount);
+            }
+            
+            // Transfer NFT
+            listing.nft_contract.transfer_from(
+                self,
+                auction.highest_bidder,
+                listing.token_id
+            )?;
+            
+            emit ListingSold(
+                listing_id,
+                auction.highest_bidder,
+                auction.highest_bid
+            );
+        } else {
+            // No bids, return NFT to seller
+            listing.nft_contract.transfer_from(
+                self,
+                listing.seller,
+                listing.token_id
+            )?;
+        }
+        
+        // Update state
+        auction.is_active = false;
+        listing.is_active = false;
+        
+        Ok(())
+    }
+    
+    // Offer functions
+    @no_reentry
+    mut fn make_offer(
+        listing_id: ListingId,
+        duration: Duration
+    ) -> Result<(), Error> {
+        let listing = listings[listing_id];
+        ensure!(listing.is_active, "Listing not active");
+        ensure!(msg.value > 0, "Invalid offer amount");
+        
+        let offer = Offer {
+            buyer: msg.sender,
+            price: msg.value,
+            expiration: block.timestamp + duration,
+        };
+        
+        offers[listing_id].push(offer);
+        
+        emit OfferMade(
+            listing_id,
+            msg.sender,
+            msg.value,
+            offer.expiration
+        );
+        
+        Ok(())
+    }
+    
+    @no_reentry
+    mut fn accept_offer(
+        listing_id: ListingId,
+        offer_index: u256
+    ) -> Result<(), Error> {
+        let listing = listings[listing_id];
+        ensure!(msg.sender == listing.seller, "Not seller");
+        
+        let offer = offers[listing_id][offer_index];
+        ensure!(block.timestamp <= offer.expiration, "Offer expired");
+        
+        // Calculate fees
+        let platform_fee_amount = (offer.price * platform_fee) / 10000;
+        let royalty_amount = calculate_royalty(
+            listing.nft_contract,
+            listing.token_id,
+            offer.price
+        );
+        let seller_amount = offer.price - platform_fee_amount - royalty_amount;
+        
+        // Transfer payments
+        transfer_eth(fee_recipient, platform_fee_amount);
+        transfer_eth(listing.seller, seller_amount);
+        
+        if royalty_amount > 0 {
+            let (recipient, _) = listing.nft_contract.get_royalty_info(
+                listing.token_id,
+                offer.price
+            );
+            transfer_eth(recipient, royalty_amount);
+        }
+        
+        // Transfer NFT
+        listing.nft_contract.transfer_from(
+            self,
+            offer.buyer,
+            listing.token_id
+        )?;
+        
+        // Update state
+        listing.is_active = false;
+        
+        // Refund other offers
+        for (i, other_offer) in offers[listing_id].iter().enumerate() {
+            if i != offer_index {
+                transfer_eth(other_offer.buyer, other_offer.price);
+            }
+        }
+        
+        emit ListingSold(listing_id, offer.buyer, offer.price);
+        Ok(())
+    }
+    
+    // Internal functions
+    fn calculate_royalty(
+        nft_contract: NFTContract,
+        token_id: TokenId,
+        sale_price: u256
+    ) -> u256 {
+        if let Ok((_, amount)) = nft_contract.get_royalty_info(
+            token_id,
+            sale_price
+        ) {
+            amount
+        } else {
+            0
+        }
+    }
+    
+    fn transfer_eth(to: Address, amount: u256) {
+        if amount > 0 {
+            to.transfer(amount).expect("ETH transfer failed");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_listing_flow() {
+        let env = TestEnvironment::new();
+        
+        let marketplace = NFTMarketplace::new(
+            250,  // 2.5% platform fee
+            env.accounts[1]  // fee recipient
+        );
+        
+        // Create NFT and approve marketplace
+        let nft = AdvancedNFT::new("Test", "TEST", "uri", 1000, 0, env.accounts[2], 500);
+        let token_id = nft.mint_public().unwrap();
+        nft.approve(marketplace.address(), token_id);
+        
+        // Create listing
+        let listing_id = marketplace.create_listing(
+            nft.address(),
+            token_id,
+            1e18,  // 1 ETH
+            None
+        ).unwrap();
+        
+        // Buy listing
+        let buyer = env.accounts[3];
+        marketplace.buy_listing(listing_id).with_value(1e18).from(buyer).unwrap();
+        
+        // Verify ownership
+        assert_eq!(nft.owner_of(token_id), buyer);
+    }
+    
+    #[test]
+    fn test_auction_flow() {
+        let env = TestEnvironment::new();
+        let marketplace = setup_marketplace();
+        let (nft, token_id) = setup_nft();
+        
+        // Create auction
+        let listing_id = marketplace.create_auction(
+            nft.address(),
+            token_id,
+            1e18,  // min bid
+            0.1e18,  // increment
+            Duration::from_days(7)
+        ).unwrap();
+        
+        // Place bids
+        marketplace.place_bid(listing_id).with_value(1e18).from(env.accounts[3]).unwrap();
+        marketplace.place_bid(listing_id).with_value(1.5e18).from(env.accounts[4]).unwrap();
+        
+        // Advance time and end auction
+        env.advance_time(Duration::from_days(7));
+        marketplace.end_auction(listing_id).unwrap();
+        
+        // Verify winner
+        assert_eq!(nft.owner_of(token_id), env.accounts[4]);
+    }
+} 

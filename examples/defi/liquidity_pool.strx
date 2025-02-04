@@ -1,0 +1,233 @@
+use std::math::{sqrt, min};
+use std::collections::Map;
+
+/// @title Automated Market Maker Liquidity Pool
+/// @notice Provides a constant product AMM with flash loan capabilities
+contract LiquidityPool {
+    // State variables with type inference
+    state token_a: Token;
+    state token_b: Token;
+    state reserve_a: u256;
+    state reserve_b: u256;
+    state total_shares: u256;
+    state shares: Map<Address, u256>;
+    state fee_rate: u256 = 0.003e18;  // 0.3% fee
+    
+    // Events
+    event AddLiquidity(provider: Address, amount_a: u256, amount_b: u256, shares: u256);
+    event RemoveLiquidity(provider: Address, amount_a: u256, amount_b: u256, shares: u256);
+    event Swap(sender: Address, token_in: Token, amount_in: u256, token_out: Token, amount_out: u256);
+    event FlashLoan(borrower: Address, token: Token, amount: u256, fee: u256);
+    
+    // Custom types
+    type Token = Address;
+    
+    // Modifiers
+    @only_after_init
+    @no_reentry
+    
+    // Constructor
+    fn init(token_a_addr: Token, token_b_addr: Token) {
+        ensure!(token_a_addr != token_b_addr, "Same tokens");
+        token_a = token_a_addr;
+        token_b = token_b_addr;
+    }
+    
+    // View functions
+    pure fn get_reserves() -> (u256, u256) {
+        (reserve_a, reserve_b)
+    }
+    
+    pure fn get_shares(provider: Address) -> u256 {
+        shares[provider]
+    }
+    
+    pure fn calculate_swap_out(token_in: Token, amount_in: u256) -> Result<u256, Error> {
+        ensure!(amount_in > 0, "Invalid input amount");
+        
+        let (reserve_in, reserve_out) = if token_in == token_a {
+            (reserve_a, reserve_b)
+        } else if token_in == token_b {
+            (reserve_b, reserve_a)
+        } else {
+            return Err(Error::InvalidToken);
+        };
+        
+        let amount_in_with_fee = amount_in * (1e18 - fee_rate);
+        let numerator = amount_in_with_fee * reserve_out;
+        let denominator = reserve_in * 1e18 + amount_in_with_fee;
+        
+        Ok(numerator / denominator)
+    }
+    
+    // Mutable functions
+    @no_reentry
+    mut fn add_liquidity(amount_a: u256, amount_b: u256) -> Result<u256, Error> {
+        ensure!(amount_a > 0 && amount_b > 0, "Zero amounts");
+        
+        // Calculate shares
+        let shares_to_mint = if total_shares == 0 {
+            sqrt(amount_a * amount_b)
+        } else {
+            min(
+                amount_a * total_shares / reserve_a,
+                amount_b * total_shares / reserve_b
+            )
+        };
+        
+        // Transfer tokens
+        token_a.transfer_from(msg.sender, self, amount_a)?;
+        token_b.transfer_from(msg.sender, self, amount_b)?;
+        
+        // Update state
+        reserve_a += amount_a;
+        reserve_b += amount_b;
+        total_shares += shares_to_mint;
+        shares[msg.sender] += shares_to_mint;
+        
+        emit AddLiquidity(msg.sender, amount_a, amount_b, shares_to_mint);
+        Ok(shares_to_mint)
+    }
+    
+    @no_reentry
+    mut fn remove_liquidity(share_amount: u256) -> Result<(u256, u256), Error> {
+        ensure!(share_amount > 0, "Zero shares");
+        ensure!(shares[msg.sender] >= share_amount, "Insufficient shares");
+        
+        // Calculate token amounts
+        let amount_a = share_amount * reserve_a / total_shares;
+        let amount_b = share_amount * reserve_b / total_shares;
+        
+        // Update state
+        shares[msg.sender] -= share_amount;
+        total_shares -= share_amount;
+        reserve_a -= amount_a;
+        reserve_b -= amount_b;
+        
+        // Transfer tokens
+        token_a.transfer(msg.sender, amount_a)?;
+        token_b.transfer(msg.sender, amount_b)?;
+        
+        emit RemoveLiquidity(msg.sender, amount_a, amount_b, share_amount);
+        Ok((amount_a, amount_b))
+    }
+    
+    @no_reentry
+    mut fn swap(token_in: Token, amount_in: u256) -> Result<u256, Error> {
+        ensure!(amount_in > 0, "Zero input amount");
+        ensure!(token_in == token_a || token_in == token_b, "Invalid token");
+        
+        let amount_out = calculate_swap_out(token_in, amount_in)?;
+        let token_out = if token_in == token_a { token_b } else { token_a };
+        
+        // Transfer tokens
+        token_in.transfer_from(msg.sender, self, amount_in)?;
+        token_out.transfer(msg.sender, amount_out)?;
+        
+        // Update reserves
+        if token_in == token_a {
+            reserve_a += amount_in;
+            reserve_b -= amount_out;
+        } else {
+            reserve_b += amount_in;
+            reserve_a -= amount_out;
+        }
+        
+        emit Swap(msg.sender, token_in, amount_in, token_out, amount_out);
+        Ok(amount_out)
+    }
+    
+    @no_reentry
+    mut fn flash_loan(
+        token: Token,
+        amount: u256,
+        callback_data: Vec<u8>,
+    ) -> Result<(), Error> {
+        ensure!(token == token_a || token == token_b, "Invalid token");
+        ensure!(amount > 0, "Zero amount");
+        
+        let fee = amount * fee_rate / 1e18;
+        let reserve = if token == token_a { reserve_a } else { reserve_b };
+        ensure!(amount <= reserve, "Insufficient liquidity");
+        
+        // Transfer tokens to borrower
+        token.transfer(msg.sender, amount)?;
+        
+        // Call borrower's callback
+        let success = msg.sender.call(
+            "execute_operation",
+            (token, amount, fee, callback_data),
+        )?;
+        ensure!(success, "Callback failed");
+        
+        // Verify repayment
+        let new_balance = token.balance_of(self);
+        ensure!(
+            new_balance >= reserve + fee,
+            "Insufficient repayment"
+        );
+        
+        // Update reserve
+        if token == token_a {
+            reserve_a = new_balance;
+        } else {
+            reserve_b = new_balance;
+        }
+        
+        emit FlashLoan(msg.sender, token, amount, fee);
+        Ok(())
+    }
+    
+    // Internal functions
+    fn _update_reserves(new_reserve_a: u256, new_reserve_b: u256) {
+        reserve_a = new_reserve_a;
+        reserve_b = new_reserve_b;
+    }
+}
+
+// Flash loan receiver interface
+interface FlashLoanReceiver {
+    fn execute_operation(
+        token: Token,
+        amount: u256,
+        fee: u256,
+        data: Vec<u8>,
+    ) -> bool;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_add_liquidity() {
+        let env = TestEnvironment::new();
+        let pool = LiquidityPool::new(token_a, token_b);
+        
+        // Add initial liquidity
+        let result = pool.add_liquidity(1000e18, 1000e18);
+        assert!(result.is_ok());
+        
+        let (reserve_a, reserve_b) = pool.get_reserves();
+        assert_eq!(reserve_a, 1000e18);
+        assert_eq!(reserve_b, 1000e18);
+    }
+    
+    #[test]
+    fn test_swap() {
+        let env = TestEnvironment::new();
+        let pool = LiquidityPool::new(token_a, token_b);
+        
+        // Add liquidity
+        pool.add_liquidity(1000e18, 1000e18).unwrap();
+        
+        // Perform swap
+        let amount_out = pool.swap(token_a, 100e18).unwrap();
+        assert!(amount_out > 0);
+        
+        // Verify reserves
+        let (reserve_a, reserve_b) = pool.get_reserves();
+        assert_eq!(reserve_a, 1100e18);
+        assert!(reserve_b < 1000e18);
+    }
+} 

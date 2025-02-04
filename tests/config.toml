@@ -1,0 +1,60 @@
+# Test Configuration for Stremax
+
+[test]
+# Test environment configuration
+parallel = true
+test_timeout = 300  # seconds
+show_output = true
+color = true
+
+# Test filters
+test_pattern = ".*"
+skip_pattern = ""
+include_ignored = false
+
+# Coverage settings
+coverage = true
+coverage_threshold = 80
+generate_html = true
+output_dir = "target/coverage"
+
+# Gas settings
+gas_reporting = true
+gas_threshold = 50000  # maximum gas per transaction
+optimize = true
+
+# Property testing
+max_test_cases = 100
+max_shrink_iterations = 100
+timeout_ms = 10000
+
+# Formal verification
+verification_timeout = 60  # seconds
+verification_depth = 50
+verify_invariants = true
+verify_safety = true
+verify_liveness = true
+
+# Chain settings
+[test.chains]
+ethereum = { rpc = "http://localhost:8545", chain_id = 1 }
+polygon = { rpc = "http://localhost:8546", chain_id = 137 }
+
+# Privacy settings
+[test.privacy]
+enable_zk = true
+proof_system = "groth16"
+curve = "bn254"
+
+# Logging
+[test.log]
+level = "debug"
+file = "target/test.log"
+format = "detailed"
+
+# Custom test hooks
+[test.hooks]
+before_suite = "scripts/before_suite.sh"
+after_suite = "scripts/after_suite.sh"
+before_test = "scripts/before_test.sh"
+after_test = "scripts/after_test.sh" 

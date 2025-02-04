@@ -1,0 +1,218 @@
+use std::bridge::{BridgeConfig, ChainId, Message, Proof};
+use std::collections::Map;
+use std::crypto::verify_signature;
+
+/// @title Cross-Chain Token
+/// @notice Token that can be transferred across different blockchain networks
+contract CrossChainToken {
+    // Configuration
+    state bridge_config: BridgeConfig;
+    state supported_chains: Map<ChainId, bool>;
+    state local_chain_id: ChainId;
+    
+    // Token state
+    state name: String;
+    state symbol: String;
+    state decimals: u8;
+    state total_supply: u256;
+    state balances: Map<Address, u256>;
+    
+    // Cross-chain state
+    state nonces: Map<ChainId, u256>;
+    state processed_messages: Map<bytes32, bool>;
+    
+    // Events
+    event Transfer(from: Address, to: Address, amount: u256);
+    event CrossChainTransfer(
+        from: Address,
+        to: Address,
+        amount: u256,
+        target_chain: ChainId,
+        nonce: u256
+    );
+    event ReceiveTokens(
+        from: Address,
+        to: Address,
+        amount: u256,
+        source_chain: ChainId,
+        nonce: u256
+    );
+    
+    // Constructor
+    fn init(
+        _name: String,
+        _symbol: String,
+        _decimals: u8,
+        _bridge_config: BridgeConfig,
+        _local_chain_id: ChainId,
+        initial_chains: Vec<ChainId>
+    ) {
+        name = _name;
+        symbol = _symbol;
+        decimals = _decimals;
+        bridge_config = _bridge_config;
+        local_chain_id = _local_chain_id;
+        
+        // Initialize supported chains
+        for chain_id in initial_chains {
+            supported_chains[chain_id] = true;
+        }
+    }
+    
+    // View functions
+    pure fn get_balance(account: Address) -> u256 {
+        balances[account]
+    }
+    
+    pure fn get_nonce(chain_id: ChainId) -> u256 {
+        nonces[chain_id]
+    }
+    
+    // Cross-chain transfer
+    @no_reentry
+    mut fn transfer_cross_chain(
+        to: Address,
+        amount: u256,
+        target_chain: ChainId
+    ) -> Result<bytes32, Error> {
+        ensure!(supported_chains[target_chain], "Unsupported chain");
+        ensure!(amount > 0, "Zero amount");
+        ensure!(balances[msg.sender] >= amount, "Insufficient balance");
+        
+        // Burn tokens on this chain
+        balances[msg.sender] -= amount;
+        total_supply -= amount;
+        
+        // Prepare cross-chain message
+        let nonce = nonces[target_chain];
+        nonces[target_chain] += 1;
+        
+        let message = Message {
+            source_chain: local_chain_id,
+            target_chain: target_chain,
+            sender: msg.sender,
+            recipient: to,
+            amount: amount,
+            nonce: nonce,
+        };
+        
+        // Submit to bridge
+        let message_hash = bridge_config.submit_message(message)?;
+        
+        emit CrossChainTransfer(
+            msg.sender,
+            to,
+            amount,
+            target_chain,
+            nonce
+        );
+        
+        Ok(message_hash)
+    }
+    
+    // Receive tokens from another chain
+    @no_reentry
+    mut fn receive_tokens(
+        message: Message,
+        proof: Proof
+    ) -> Result<(), Error> {
+        // Verify message hasn't been processed
+        let message_hash = message.hash();
+        ensure!(!processed_messages[message_hash], "Message already processed");
+        
+        // Verify proof through bridge
+        ensure!(
+            bridge_config.verify_message(message, proof)?,
+            "Invalid proof"
+        );
+        
+        // Verify chain IDs
+        ensure!(
+            message.target_chain == local_chain_id,
+            "Wrong target chain"
+        );
+        ensure!(
+            supported_chains[message.source_chain],
+            "Unsupported source chain"
+        );
+        
+        // Mint tokens
+        balances[message.recipient] += message.amount;
+        total_supply += message.amount;
+        
+        // Mark message as processed
+        processed_messages[message_hash] = true;
+        
+        emit ReceiveTokens(
+            message.sender,
+            message.recipient,
+            message.amount,
+            message.source_chain,
+            message.nonce
+        );
+        
+        Ok(())
+    }
+    
+    // Admin functions
+    @only_owner
+    mut fn add_supported_chain(chain_id: ChainId) -> Result<(), Error> {
+        ensure!(!supported_chains[chain_id], "Chain already supported");
+        supported_chains[chain_id] = true;
+        Ok(())
+    }
+    
+    @only_owner
+    mut fn remove_supported_chain(chain_id: ChainId) -> Result<(), Error> {
+        ensure!(supported_chains[chain_id], "Chain not supported");
+        supported_chains[chain_id] = false;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_cross_chain_transfer() {
+        let env = TestEnvironment::new();
+        
+        // Setup bridge config
+        let bridge_config = BridgeConfig {
+            validators: vec![env.accounts[1]],
+            threshold: 1,
+            // ... other bridge config
+        };
+        
+        // Deploy token on chain 1
+        let token1 = CrossChainToken::new(
+            "Cross Chain Token",
+            "CCT",
+            18,
+            bridge_config.clone(),
+            1, // chain_id
+            vec![2] // supported chains
+        );
+        
+        // Test cross-chain transfer
+        let amount = 1000e18;
+        let recipient = env.accounts[2];
+        
+        let result = token1.transfer_cross_chain(
+            recipient,
+            amount,
+            2 // target chain
+        );
+        
+        assert!(result.is_ok());
+        assert_eq!(token1.get_balance(env.accounts[0]), 0);
+        
+        // Verify event
+        let events = env.get_events();
+        assert_eq!(events.len(), 1);
+        let event = events[0].as_cross_chain_transfer().unwrap();
+        assert_eq!(event.amount, amount);
+        assert_eq!(event.target_chain, 2);
+    }
+} 

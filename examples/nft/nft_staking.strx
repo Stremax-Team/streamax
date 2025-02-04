@@ -1,0 +1,386 @@
+use std::collections::Map;
+use std::time::{Duration, Timestamp};
+use std::math::{exp, min};
+
+/// @title NFT Staking
+/// @notice Implements staking for NFTs with rarity-based rewards
+contract NFTStaking {
+    // Configuration
+    state nft_contract: NFTContract;
+    state reward_token: Token;
+    state reward_rate: u256;  // rewards per second
+    state min_stake_duration: Duration;
+    state rarity_multiplier_base: u256;  // basis points
+    
+    // Staking state
+    state stakes: Map<TokenId, Stake>;
+    state user_stakes: Map<Address, Vec<TokenId>>;
+    state total_value_locked: u256;  // sum of all rarity scores
+    state rewards_per_point: u256;
+    state user_rewards_per_point: Map<Address, u256>;
+    state pending_rewards: Map<Address, u256>;
+    
+    // Boost system
+    state level_thresholds: Vec<u256>;
+    state level_multipliers: Vec<u256>;
+    state user_boost_score: Map<Address, u256>;
+    
+    // Custom types
+    type NFTContract = Address;
+    type Token = Address;
+    type TokenId = u256;
+    
+    struct Stake {
+        owner: Address,
+        token_id: TokenId,
+        rarity_score: u256,
+        start_time: Timestamp,
+        locked_until: Timestamp,
+        accumulated_rewards: u256,
+        boost_multiplier: u256,
+    }
+    
+    // Events
+    event NFTStaked(
+        owner: Address,
+        token_id: TokenId,
+        rarity_score: u256,
+        lock_duration: Duration
+    );
+    
+    event NFTUnstaked(
+        owner: Address,
+        token_id: TokenId,
+        rewards: u256
+    );
+    
+    event RewardsClaimed(
+        owner: Address,
+        amount: u256
+    );
+    
+    event BoostUpdated(
+        owner: Address,
+        new_score: u256,
+        new_level: u256
+    );
+    
+    // Constructor
+    fn init(
+        nft_contract: NFTContract,
+        reward_token: Token,
+        reward_rate: u256,
+        min_stake_duration: Duration,
+        rarity_multiplier_base: u256
+    ) {
+        self.nft_contract = nft_contract;
+        self.reward_token = reward_token;
+        self.reward_rate = reward_rate;
+        self.min_stake_duration = min_stake_duration;
+        self.rarity_multiplier_base = rarity_multiplier_base;
+        
+        // Initialize boost levels
+        level_thresholds = vec![
+            1000e18,  // Level 1: 1000 points
+            5000e18,  // Level 2: 5000 points
+            10000e18, // Level 3: 10000 points
+            50000e18  // Level 4: 50000 points
+        ];
+        
+        level_multipliers = vec![
+            10000,    // Level 0: 1x
+            12000,    // Level 1: 1.2x
+            15000,    // Level 2: 1.5x
+            20000,    // Level 3: 2x
+            30000     // Level 4: 3x
+        ];
+    }
+    
+    // Staking functions
+    @no_reentry
+    mut fn stake(
+        token_id: TokenId,
+        lock_duration: Duration
+    ) -> Result<(), Error> {
+        ensure!(
+            lock_duration >= min_stake_duration,
+            "Lock duration too short"
+        );
+        
+        // Get NFT rarity score
+        let rarity_score = nft_contract.get_rarity_score(token_id);
+        
+        // Calculate boost multiplier based on lock duration
+        let boost_multiplier = calculate_boost_multiplier(lock_duration);
+        
+        // Transfer NFT to contract
+        nft_contract.transfer_from(msg.sender, self, token_id)?;
+        
+        // Update rewards before state changes
+        update_rewards(msg.sender);
+        
+        // Create stake
+        let stake = Stake {
+            owner: msg.sender,
+            token_id: token_id,
+            rarity_score: rarity_score,
+            start_time: block.timestamp,
+            locked_until: block.timestamp + lock_duration,
+            accumulated_rewards: 0,
+            boost_multiplier: boost_multiplier,
+        };
+        
+        stakes[token_id] = stake;
+        user_stakes[msg.sender].push(token_id);
+        
+        // Update TVL
+        total_value_locked += rarity_score;
+        
+        // Update user boost score
+        update_boost_score(msg.sender);
+        
+        emit NFTStaked(
+            msg.sender,
+            token_id,
+            rarity_score,
+            lock_duration
+        );
+        
+        Ok(())
+    }
+    
+    @no_reentry
+    mut fn unstake(token_id: TokenId) -> Result<(), Error> {
+        let stake = stakes[token_id];
+        ensure!(stake.owner == msg.sender, "Not owner");
+        ensure!(
+            block.timestamp >= stake.locked_until,
+            "Still locked"
+        );
+        
+        // Update rewards
+        update_rewards(msg.sender);
+        
+        // Calculate final rewards
+        let rewards = calculate_rewards(stake);
+        pending_rewards[msg.sender] += rewards;
+        
+        // Transfer NFT back
+        nft_contract.transfer_from(self, msg.sender, token_id)?;
+        
+        // Update state
+        total_value_locked -= stake.rarity_score;
+        remove_stake(msg.sender, token_id);
+        
+        // Update boost score
+        update_boost_score(msg.sender);
+        
+        emit NFTUnstaked(msg.sender, token_id, rewards);
+        Ok(())
+    }
+    
+    @no_reentry
+    mut fn claim_rewards() -> Result<(), Error> {
+        update_rewards(msg.sender);
+        
+        let rewards = pending_rewards[msg.sender];
+        ensure!(rewards > 0, "No rewards");
+        
+        pending_rewards[msg.sender] = 0;
+        reward_token.transfer(msg.sender, rewards)?;
+        
+        emit RewardsClaimed(msg.sender, rewards);
+        Ok(())
+    }
+    
+    // View functions
+    pure fn get_user_stakes(user: Address) -> Vec<TokenId> {
+        user_stakes[user].clone()
+    }
+    
+    pure fn get_stake_info(token_id: TokenId) -> Stake {
+        stakes[token_id].clone()
+    }
+    
+    pure fn get_pending_rewards(user: Address) -> u256 {
+        let current_rewards = pending_rewards[user];
+        
+        // Add unclaimed rewards
+        for token_id in user_stakes[user] {
+            let stake = stakes[token_id];
+            current_rewards += calculate_rewards(stake);
+        }
+        
+        current_rewards
+    }
+    
+    pure fn get_boost_level(user: Address) -> u256 {
+        let score = user_boost_score[user];
+        
+        for (i, threshold) in level_thresholds.iter().enumerate() {
+            if score < *threshold {
+                return i as u256;
+            }
+        }
+        
+        level_thresholds.len() as u256
+    }
+    
+    // Internal functions
+    fn update_rewards(user: Address) {
+        let current_rewards_per_point = calculate_rewards_per_point();
+        
+        if current_rewards_per_point > rewards_per_point {
+            rewards_per_point = current_rewards_per_point;
+        }
+        
+        let user_points = calculate_user_points(user);
+        let new_rewards = user_points * (
+            rewards_per_point - user_rewards_per_point[user]
+        );
+        
+        pending_rewards[user] += new_rewards;
+        user_rewards_per_point[user] = rewards_per_point;
+    }
+    
+    fn calculate_rewards(stake: Stake) -> u256 {
+        let time_staked = min(
+            block.timestamp - stake.start_time,
+            stake.locked_until - stake.start_time
+        );
+        
+        let base_rewards = time_staked * reward_rate;
+        let rarity_multiplier = (stake.rarity_score * rarity_multiplier_base) / 10000;
+        let boost_multiplier = stake.boost_multiplier;
+        
+        base_rewards * rarity_multiplier * boost_multiplier / 1e18
+    }
+    
+    fn calculate_boost_multiplier(lock_duration: Duration) -> u256 {
+        let days = lock_duration.as_days();
+        min(
+            10000 + (days * 5000 / 365), // Max 1.5x for 1 year
+            15000
+        )
+    }
+    
+    fn calculate_user_points(user: Address) -> u256 {
+        let mut points = 0;
+        for token_id in user_stakes[user] {
+            let stake = stakes[token_id];
+            points += stake.rarity_score * stake.boost_multiplier;
+        }
+        points
+    }
+    
+    fn update_boost_score(user: Address) {
+        let mut score = 0;
+        for token_id in user_stakes[user] {
+            let stake = stakes[token_id];
+            score += stake.rarity_score;
+        }
+        
+        user_boost_score[user] = score;
+        
+        emit BoostUpdated(
+            user,
+            score,
+            get_boost_level(user)
+        );
+    }
+    
+    fn calculate_rewards_per_point() -> u256 {
+        if total_value_locked == 0 {
+            return rewards_per_point;
+        }
+        
+        let time_elapsed = block.timestamp - last_update_time;
+        rewards_per_point + (
+            time_elapsed * reward_rate / total_value_locked
+        )
+    }
+    
+    fn remove_stake(user: Address, token_id: TokenId) {
+        let mut user_token_ids = user_stakes[user];
+        if let Some(index) = user_token_ids.iter().position(|&id| id == token_id) {
+            user_token_ids.swap_remove(index);
+        }
+        user_stakes[user] = user_token_ids;
+        stakes[token_id] = Stake::default();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_staking_flow() {
+        let env = TestEnvironment::new();
+        
+        // Deploy contracts
+        let nft = setup_nft();
+        let reward_token = setup_reward_token();
+        
+        let staking = NFTStaking::new(
+            nft.address(),
+            reward_token.address(),
+            1e18,  // 1 token per second
+            Duration::from_days(7),  // min stake duration
+            5000   // 0.5x - 1.5x rarity multiplier
+        );
+        
+        // Mint and stake NFT
+        let token_id = nft.mint_public().unwrap();
+        nft.approve(staking.address(), token_id);
+        
+        staking.stake(
+            token_id,
+            Duration::from_days(30)
+        ).unwrap();
+        
+        // Advance time
+        env.advance_time(Duration::from_days(15));
+        
+        // Check rewards
+        let pending = staking.get_pending_rewards(env.accounts[0]);
+        assert!(pending > 0);
+        
+        // Unstake
+        env.advance_time(Duration::from_days(15));
+        staking.unstake(token_id).unwrap();
+        
+        // Claim rewards
+        let initial_balance = reward_token.balance_of(env.accounts[0]);
+        staking.claim_rewards().unwrap();
+        
+        let final_balance = reward_token.balance_of(env.accounts[0]);
+        assert!(final_balance > initial_balance);
+    }
+    
+    #[test]
+    fn test_boost_system() {
+        let env = TestEnvironment::new();
+        let (staking, nft) = setup_staking();
+        
+        // Mint and stake multiple NFTs
+        let mut token_ids = Vec::new();
+        for _ in 0..5 {
+            let token_id = nft.mint_public().unwrap();
+            nft.approve(staking.address(), token_id);
+            staking.stake(token_id, Duration::from_days(30)).unwrap();
+            token_ids.push(token_id);
+        }
+        
+        // Check boost level
+        let level = staking.get_boost_level(env.accounts[0]);
+        assert!(level > 0);
+        
+        // Unstake one NFT
+        staking.unstake(token_ids[0]).unwrap();
+        
+        // Verify boost level decreased
+        let new_level = staking.get_boost_level(env.accounts[0]);
+        assert!(new_level < level);
+    }
+} 

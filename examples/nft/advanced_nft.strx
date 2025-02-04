@@ -1,0 +1,359 @@
+use std::collections::{Map, Set};
+use std::crypto::verify_signature;
+use std::uri::Uri;
+
+/// @title Advanced NFT Collection
+/// @notice Implements ERC721 with advanced features like metadata, royalties, and marketplace integration
+contract AdvancedNFT {
+    // Configuration
+    state name: String;
+    state symbol: String;
+    state base_uri: Uri;
+    state max_supply: u256;
+    state mint_price: u256;
+    
+    // Token state
+    state owners: Map<TokenId, Address>;
+    state balances: Map<Address, u256>;
+    state token_approvals: Map<TokenId, Address>;
+    state operator_approvals: Map<Address, Map<Address, bool>>;
+    state token_uris: Map<TokenId, Uri>;
+    state total_supply: u256;
+    
+    // Metadata
+    state attributes: Map<TokenId, Vec<Attribute>>;
+    state rarity_scores: Map<TokenId, u256>;
+    
+    // Royalties
+    state royalty_recipient: Address;
+    state royalty_percentage: u256;  // basis points (100 = 1%)
+    
+    // Sale configuration
+    state is_sale_active: bool;
+    state whitelist: Set<Address>;
+    state presale_mint_limit: Map<Address, u256>;
+    
+    // Custom types
+    type TokenId = u256;
+    
+    struct Attribute {
+        trait_type: String,
+        value: String,
+        rarity: u256,  // basis points
+    }
+    
+    // Events
+    event Transfer(from: Address, to: Address, token_id: TokenId);
+    event Approval(owner: Address, approved: Address, token_id: TokenId);
+    event ApprovalForAll(owner: Address, operator: Address, approved: bool);
+    event Mint(to: Address, token_id: TokenId, attributes: Vec<Attribute>);
+    event MetadataUpdate(token_id: TokenId);
+    
+    // Constructor
+    fn init(
+        name: String,
+        symbol: String,
+        base_uri: Uri,
+        max_supply: u256,
+        mint_price: u256,
+        royalty_recipient: Address,
+        royalty_percentage: u256
+    ) {
+        ensure!(royalty_percentage <= 1000, "Royalty too high");  // max 10%
+        
+        self.name = name;
+        self.symbol = symbol;
+        self.base_uri = base_uri;
+        self.max_supply = max_supply;
+        self.mint_price = mint_price;
+        self.royalty_recipient = royalty_recipient;
+        self.royalty_percentage = royalty_percentage;
+    }
+    
+    // View functions
+    pure fn owner_of(token_id: TokenId) -> Address {
+        ensure!(exists(token_id), "Token doesn't exist");
+        owners[token_id]
+    }
+    
+    pure fn balance_of(owner: Address) -> u256 {
+        balances[owner]
+    }
+    
+    pure fn get_approved(token_id: TokenId) -> Address {
+        ensure!(exists(token_id), "Token doesn't exist");
+        token_approvals[token_id]
+    }
+    
+    pure fn is_approved_for_all(owner: Address, operator: Address) -> bool {
+        operator_approvals[owner][operator]
+    }
+    
+    pure fn token_uri(token_id: TokenId) -> Uri {
+        ensure!(exists(token_id), "Token doesn't exist");
+        
+        if let Some(uri) = token_uris[token_id] {
+            uri
+        } else {
+            format!("{}/{}", base_uri, token_id)
+        }
+    }
+    
+    pure fn get_attributes(token_id: TokenId) -> Vec<Attribute> {
+        ensure!(exists(token_id), "Token doesn't exist");
+        attributes[token_id].clone()
+    }
+    
+    pure fn get_rarity_score(token_id: TokenId) -> u256 {
+        ensure!(exists(token_id), "Token doesn't exist");
+        rarity_scores[token_id]
+    }
+    
+    // Minting functions
+    @no_reentry
+    mut fn mint_public() -> Result<TokenId, Error> {
+        ensure!(is_sale_active, "Sale not active");
+        ensure!(msg.value >= mint_price, "Insufficient payment");
+        ensure!(total_supply < max_supply, "Max supply reached");
+        
+        let token_id = total_supply + 1;
+        _mint(msg.sender, token_id)?;
+        
+        // Generate random attributes
+        let attrs = generate_random_attributes(token_id);
+        attributes[token_id] = attrs.clone();
+        
+        // Calculate rarity score
+        let score = calculate_rarity_score(attrs);
+        rarity_scores[token_id] = score;
+        
+        emit Mint(msg.sender, token_id, attrs);
+        Ok(token_id)
+    }
+    
+    @no_reentry
+    mut fn mint_whitelist() -> Result<TokenId, Error> {
+        ensure!(is_sale_active, "Sale not active");
+        ensure!(whitelist.contains(msg.sender), "Not whitelisted");
+        ensure!(
+            presale_mint_limit[msg.sender] > 0,
+            "Exceeded mint limit"
+        );
+        
+        presale_mint_limit[msg.sender] -= 1;
+        mint_public()
+    }
+    
+    // Transfer functions
+    @no_reentry
+    mut fn transfer_from(
+        from: Address,
+        to: Address,
+        token_id: TokenId
+    ) -> Result<(), Error> {
+        ensure!(
+            msg.sender == from ||
+            msg.sender == token_approvals[token_id] ||
+            operator_approvals[from][msg.sender],
+            "Not authorized"
+        );
+        
+        ensure!(owner_of(token_id) == from, "Wrong owner");
+        ensure!(to != Address::zero(), "Invalid recipient");
+        
+        // Clear approvals
+        token_approvals[token_id] = Address::zero();
+        
+        // Update balances
+        balances[from] -= 1;
+        balances[to] += 1;
+        
+        // Update owner
+        owners[token_id] = to;
+        
+        emit Transfer(from, to, token_id);
+        Ok(())
+    }
+    
+    // Approval functions
+    @no_reentry
+    mut fn approve(approved: Address, token_id: TokenId) -> Result<(), Error> {
+        let owner = owner_of(token_id);
+        ensure!(
+            msg.sender == owner ||
+            operator_approvals[owner][msg.sender],
+            "Not authorized"
+        );
+        
+        token_approvals[token_id] = approved;
+        emit Approval(owner, approved, token_id);
+        Ok(())
+    }
+    
+    @no_reentry
+    mut fn set_approval_for_all(
+        operator: Address,
+        approved: bool
+    ) -> Result<(), Error> {
+        ensure!(operator != msg.sender, "Self approval");
+        
+        operator_approvals[msg.sender][operator] = approved;
+        emit ApprovalForAll(msg.sender, operator, approved);
+        Ok(())
+    }
+    
+    // Marketplace integration
+    @no_reentry
+    mut fn get_royalty_info(
+        token_id: TokenId,
+        sale_price: u256
+    ) -> (Address, u256) {
+        ensure!(exists(token_id), "Token doesn't exist");
+        
+        let royalty_amount = (sale_price * royalty_percentage) / 10000;
+        (royalty_recipient, royalty_amount)
+    }
+    
+    // Admin functions
+    @only_owner
+    mut fn set_base_uri(new_base_uri: Uri) -> Result<(), Error> {
+        base_uri = new_base_uri;
+        Ok(())
+    }
+    
+    @only_owner
+    mut fn set_sale_active(active: bool) -> Result<(), Error> {
+        is_sale_active = active;
+        Ok(())
+    }
+    
+    @only_owner
+    mut fn add_to_whitelist(users: Vec<Address>) -> Result<(), Error> {
+        for user in users {
+            whitelist.insert(user);
+            presale_mint_limit[user] = 2;  // 2 mints per address
+        }
+        Ok(())
+    }
+    
+    // Internal functions
+    fn _mint(to: Address, token_id: TokenId) -> Result<(), Error> {
+        ensure!(!exists(token_id), "Token already exists");
+        ensure!(to != Address::zero(), "Invalid recipient");
+        
+        owners[token_id] = to;
+        balances[to] += 1;
+        total_supply += 1;
+        
+        emit Transfer(Address::zero(), to, token_id);
+        Ok(())
+    }
+    
+    fn exists(token_id: TokenId) -> bool {
+        owners[token_id] != Address::zero()
+    }
+    
+    fn generate_random_attributes(token_id: TokenId) -> Vec<Attribute> {
+        let seed = keccak256(
+            abi_encode(token_id, block.timestamp, block.difficulty)
+        );
+        
+        // Generate attributes based on seed
+        vec![
+            Attribute {
+                trait_type: "Background".to_string(),
+                value: get_random_background(seed),
+                rarity: calculate_trait_rarity("Background"),
+            },
+            Attribute {
+                trait_type: "Base".to_string(),
+                value: get_random_base(seed),
+                rarity: calculate_trait_rarity("Base"),
+            },
+            // Add more attributes...
+        ]
+    }
+    
+    fn calculate_rarity_score(attrs: Vec<Attribute>) -> u256 {
+        let mut score = 0;
+        for attr in attrs {
+            score += attr.rarity;
+        }
+        score / attrs.len() as u256
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_minting() {
+        let env = TestEnvironment::new();
+        
+        let nft = AdvancedNFT::new(
+            "Test NFT",
+            "TEST",
+            "https://api.test.com/metadata/",
+            10000,  // max supply
+            0.1e18, // mint price
+            env.accounts[1],  // royalty recipient
+            500     // 5% royalties
+        );
+        
+        // Activate sale
+        nft.set_sale_active(true);
+        
+        // Mint token
+        let token_id = nft.mint_public().unwrap();
+        
+        // Verify ownership
+        assert_eq!(nft.owner_of(token_id), env.accounts[0]);
+        
+        // Verify metadata
+        let attrs = nft.get_attributes(token_id);
+        assert!(attrs.len() > 0);
+        
+        // Verify rarity score
+        let score = nft.get_rarity_score(token_id);
+        assert!(score > 0);
+    }
+    
+    #[test]
+    fn test_whitelist_minting() {
+        let env = TestEnvironment::new();
+        let nft = setup_nft();
+        
+        // Add to whitelist
+        nft.add_to_whitelist(vec![env.accounts[0]]);
+        
+        // Activate sale
+        nft.set_sale_active(true);
+        
+        // Mint with whitelist
+        let token_id = nft.mint_whitelist().unwrap();
+        assert_eq!(nft.owner_of(token_id), env.accounts[0]);
+        
+        // Verify mint limit
+        let result = nft.mint_whitelist();
+        assert!(result.is_ok());
+        
+        // Third mint should fail
+        let result = nft.mint_whitelist();
+        assert!(result.is_err());
+    }
+    
+    #[test]
+    fn test_royalties() {
+        let env = TestEnvironment::new();
+        let nft = setup_nft();
+        
+        // Mint token
+        let token_id = nft.mint_public().unwrap();
+        
+        // Check royalties
+        let (recipient, amount) = nft.get_royalty_info(token_id, 100e18);
+        assert_eq!(recipient, env.accounts[1]);
+        assert_eq!(amount, 5e18);  // 5% of 100
+    }
+} 

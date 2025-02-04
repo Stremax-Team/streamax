@@ -1,0 +1,323 @@
+use std::collections::{Map, Set};
+use std::time::{Duration, Timestamp};
+use std::math::{sqrt, min};
+
+/// @title Decentralized Autonomous Organization
+/// @notice Implements a DAO with quadratic voting and timelock
+contract DAO {
+    // Governance parameters
+    state voting_delay: Duration;
+    state voting_period: Duration;
+    state timelock_delay: Duration;
+    state proposal_threshold: u256;
+    state quorum_votes: u256;
+    
+    // Token for governance
+    state governance_token: Token;
+    state votes: Map<Address, u256>;
+    state delegates: Map<Address, Address>;
+    
+    // Proposal state
+    state proposals: Map<u256, Proposal>;
+    state proposal_count: u256;
+    state locked_tokens: Map<Address, Map<u256, u256>>;
+    
+    // Timelock
+    state pending_transactions: Map<bytes32, TimelockTx>;
+    state min_delay: Duration;
+    state grace_period: Duration;
+    
+    // Custom types
+    type Token = Address;
+    
+    struct Proposal {
+        id: u256,
+        proposer: Address,
+        targets: Vec<Address>,
+        values: Vec<u256>,
+        signatures: Vec<String>,
+        calldatas: Vec<Vec<u8>>,
+        start_time: Timestamp,
+        end_time: Timestamp,
+        for_votes: u256,
+        against_votes: u256,
+        abstain_votes: u256,
+        canceled: bool,
+        executed: bool,
+        description: String,
+    }
+    
+    struct TimelockTx {
+        target: Address,
+        value: u256,
+        signature: String,
+        data: Vec<u8>,
+        eta: Timestamp,
+        executed: bool,
+    }
+    
+    enum VoteType {
+        Against = 0,
+        For = 1,
+        Abstain = 2,
+    }
+    
+    // Events
+    event ProposalCreated(
+        id: u256,
+        proposer: Address,
+        targets: Vec<Address>,
+        values: Vec<u256>,
+        signatures: Vec<String>,
+        calldatas: Vec<Vec<u8>>,
+        start_time: Timestamp,
+        end_time: Timestamp,
+        description: String
+    );
+    
+    event VoteCast(
+        voter: Address,
+        proposal_id: u256,
+        vote: VoteType,
+        votes: u256
+    );
+    
+    event ProposalExecuted(id: u256);
+    event ProposalCanceled(id: u256);
+    
+    // Constructor
+    fn init(
+        token: Token,
+        voting_delay: Duration,
+        voting_period: Duration,
+        timelock_delay: Duration,
+        proposal_threshold: u256,
+        quorum_votes: u256
+    ) {
+        governance_token = token;
+        self.voting_delay = voting_delay;
+        self.voting_period = voting_period;
+        self.timelock_delay = timelock_delay;
+        self.proposal_threshold = proposal_threshold;
+        self.quorum_votes = quorum_votes;
+        min_delay = Duration::from_days(2);
+        grace_period = Duration::from_days(14);
+    }
+    
+    // Governance functions
+    @no_reentry
+    mut fn propose(
+        targets: Vec<Address>,
+        values: Vec<u256>,
+        signatures: Vec<String>,
+        calldatas: Vec<Vec<u8>>,
+        description: String
+    ) -> Result<u256, Error> {
+        ensure!(
+            get_votes(msg.sender) >= proposal_threshold,
+            "Insufficient votes"
+        );
+        
+        // Validate proposal
+        ensure!(
+            targets.len() == values.len() &&
+            targets.len() == signatures.len() &&
+            targets.len() == calldatas.len(),
+            "Invalid proposal"
+        );
+        
+        let start_time = block.timestamp + voting_delay;
+        let end_time = start_time + voting_period;
+        
+        proposal_count += 1;
+        let proposal = Proposal {
+            id: proposal_count,
+            proposer: msg.sender,
+            targets: targets.clone(),
+            values: values.clone(),
+            signatures: signatures.clone(),
+            calldatas: calldatas.clone(),
+            start_time: start_time,
+            end_time: end_time,
+            for_votes: 0,
+            against_votes: 0,
+            abstain_votes: 0,
+            canceled: false,
+            executed: false,
+            description: description.clone(),
+        };
+        
+        proposals[proposal_count] = proposal;
+        
+        emit ProposalCreated(
+            proposal_count,
+            msg.sender,
+            targets,
+            values,
+            signatures,
+            calldatas,
+            start_time,
+            end_time,
+            description
+        );
+        
+        Ok(proposal_count)
+    }
+    
+    @no_reentry
+    mut fn cast_vote(
+        proposal_id: u256,
+        vote_type: VoteType
+    ) -> Result<(), Error> {
+        ensure!(state(proposal_id) == ProposalState::Active, "Proposal not active");
+        
+        let voter = msg.sender;
+        let votes = get_votes(voter);
+        
+        // Calculate quadratic votes
+        let sqrt_votes = sqrt(votes);
+        let voting_power = sqrt_votes * sqrt_votes;
+        
+        // Lock tokens
+        locked_tokens[voter][proposal_id] = votes;
+        
+        // Update proposal votes
+        let proposal = &mut proposals[proposal_id];
+        match vote_type {
+            VoteType::Against => proposal.against_votes += voting_power,
+            VoteType::For => proposal.for_votes += voting_power,
+            VoteType::Abstain => proposal.abstain_votes += voting_power,
+        }
+        
+        emit VoteCast(voter, proposal_id, vote_type, voting_power);
+        Ok(())
+    }
+    
+    @no_reentry
+    mut fn execute(proposal_id: u256) -> Result<(), Error> {
+        ensure!(
+            state(proposal_id) == ProposalState::Succeeded,
+            "Proposal not succeeded"
+        );
+        
+        let proposal = proposals[proposal_id];
+        
+        // Queue in timelock
+        for i in 0..proposal.targets.len() {
+            queue_transaction(
+                proposal.targets[i],
+                proposal.values[i],
+                proposal.signatures[i],
+                proposal.calldatas[i],
+                block.timestamp + timelock_delay
+            )?;
+        }
+        
+        proposal.executed = true;
+        emit ProposalExecuted(proposal_id);
+        Ok(())
+    }
+    
+    // View functions
+    pure fn state(proposal_id: u256) -> ProposalState {
+        let proposal = proposals[proposal_id];
+        
+        if proposal.canceled {
+            return ProposalState::Canceled;
+        }
+        
+        if proposal.executed {
+            return ProposalState::Executed;
+        }
+        
+        let current_time = block.timestamp;
+        
+        if current_time < proposal.start_time {
+            return ProposalState::Pending;
+        }
+        
+        if current_time <= proposal.end_time {
+            return ProposalState::Active;
+        }
+        
+        if proposal.for_votes <= proposal.against_votes ||
+           proposal.for_votes + proposal.against_votes < quorum_votes {
+            return ProposalState::Defeated;
+        }
+        
+        return ProposalState::Succeeded;
+    }
+    
+    pure fn get_votes(account: Address) -> u256 {
+        votes[account]
+    }
+    
+    // Internal functions
+    fn queue_transaction(
+        target: Address,
+        value: u256,
+        signature: String,
+        data: Vec<u8>,
+        eta: Timestamp
+    ) -> Result<bytes32, Error> {
+        ensure!(eta >= block.timestamp + min_delay, "Too early");
+        
+        let tx_hash = keccak256(
+            abi_encode(target, value, signature, data, eta)
+        );
+        
+        pending_transactions[tx_hash] = TimelockTx {
+            target: target,
+            value: value,
+            signature: signature,
+            data: data,
+            eta: eta,
+            executed: false,
+        };
+        
+        Ok(tx_hash)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_proposal_lifecycle() {
+        let env = TestEnvironment::new();
+        
+        // Deploy governance token and DAO
+        let token = Token::new("Governance Token", "GOV");
+        let dao = DAO::new(
+            token.address(),
+            Duration::from_days(1), // voting_delay
+            Duration::from_days(7), // voting_period
+            Duration::from_days(2), // timelock_delay
+            1000e18, // proposal_threshold
+            10000e18 // quorum_votes
+        );
+        
+        // Create proposal
+        let proposal_id = dao.propose(
+            vec![env.accounts[1]],
+            vec![100e18],
+            vec!["transfer(address,uint256)"],
+            vec![abi_encode(env.accounts[2], 100e18)],
+            "Transfer tokens to recipient"
+        ).unwrap();
+        
+        // Advance time and vote
+        env.advance_time(Duration::from_days(1));
+        dao.cast_vote(proposal_id, VoteType::For).unwrap();
+        
+        // Verify proposal state
+        assert_eq!(dao.state(proposal_id), ProposalState::Active);
+        
+        // Advance time and execute
+        env.advance_time(Duration::from_days(7));
+        dao.execute(proposal_id).unwrap();
+        
+        assert_eq!(dao.state(proposal_id), ProposalState::Executed);
+    }
+} 

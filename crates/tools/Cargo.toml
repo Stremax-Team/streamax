@@ -1,0 +1,40 @@
+[package]
+name = "stremax-tools"
+version = "0.1.0"
+edition = "2021"
+authors = ["Stremax Team"]
+description = "Development tools for the Stremax programming language"
+license = "Apache-2.0"
+
+[dependencies]
+stremax-core = { path = "../core", version = "0.1.0" }
+stremax-compiler = { path = "../compiler", version = "0.1.0" }
+stremax-runtime = { path = "../runtime", version = "0.1.0" }
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+dialoguer = "0.11"
+indicatif = "0.17"
+console = "0.15"
+
+# LSP support
+tower-lsp = "0.20"
+ropey = "1.6"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.4"
+test-case = "3.3"
+pretty_assertions = "1.4"
+
+[[bin]]
+name = "strm"
+path = "src/main.rs" 

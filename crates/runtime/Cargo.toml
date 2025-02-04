@@ -1,0 +1,37 @@
+[package]
+name = "stremax-runtime"
+version = "0.1.0"
+edition = "2021"
+authors = ["Stremax Team"]
+description = "Runtime environment for the Stremax programming language"
+license = "Apache-2.0"
+
+[dependencies]
+stremax-core = { path = "../core", version = "0.1.0" }
+
+# Memory management and concurrency
+crossbeam = { version = "0.8", features = ["all"] }
+parking_lot = "0.12"
+
+# Blockchain integration
+bitcoin = { version = "0.31", features = ["rand"] }
+ethers = { version = "2.0", features = ["legacy"] }
+ton = "0.10"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.4"
+test-case = "3.3"
+pretty_assertions = "1.4"
+
+[[bin]]
+name = "strxvm"
+path = "src/main.rs" 
