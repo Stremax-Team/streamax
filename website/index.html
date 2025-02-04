@@ -4,202 +4,166 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stremax - Modern Blockchain Programming Language</title>
+    <base href="https://stremax-team.github.io/streamax/">
     <link rel="stylesheet" href="theme/styles.css">
     <link rel="icon" type="image/svg+xml" href="assets/branding/favicon.svg">
+    <!-- Meta tags for SEO -->
     <meta name="description" content="Stremax is a modern systems programming language designed for blockchain and smart contract development">
+    <meta name="keywords" content="blockchain, programming language, smart contracts, crypto, zero-knowledge">
+    
+    <!-- Open Graph tags for social sharing -->
+    <meta property="og:title" content="Stremax Programming Language">
+    <meta property="og:description" content="A modern systems programming language for blockchain development">
+    <meta property="og:image" content="assets/branding/og-image.png">
+    <meta property="og:url" content="https://stremax-team.github.io/streamax/">
 </head>
 <body>
-    <!-- Header -->
-    <header class="nav">
-        <div class="container">
-            <nav class="nav-content">
-                <div class="logo">
-                    <img src="assets/branding/stremax-logo.svg" alt="Stremax Logo" height="40">
-                </div>
-                <ul class="nav-list">
-                    <li><a href="#features">Features</a></li>
-                    <li><a href="#docs">Documentation</a></li>
-                    <li><a href="#playground">Playground</a></li>
-                    <li><a href="#community">Community</a></li>
-                    <li><a href="https://github.com/stremax/stremax" class="button">GitHub</a></li>
-                </ul>
-            </nav>
-        </div>
-    </header>
-
-    <!-- Hero Section -->
-    <section class="hero">
-        <div class="container">
-            <h1>Build the Future of Blockchain</h1>
-            <p class="hero-subtitle">
-                A modern systems programming language designed for safe, efficient, and expressive blockchain development
-            </p>
-            <div class="hero-actions">
-                <a href="#get-started" class="button">Get Started</a>
-                <a href="#docs" class="button secondary">Documentation</a>
+    <nav>
+        <div class="container nav-content">
+            <div class="logo">
+                <img src="assets/branding/favicon.svg" alt="Stremax Logo">
+                <span>Stremax</span>
             </div>
-            <div class="hero-code">
-                <pre><code>contract Token {
-    storage {
-        total_supply: u64,
-        balances: Map<Address, u64>
-    }
-
-    public fn transfer(to: Address, amount: u64) -> Result<()> {
-        let sender = msg::sender();
-        ensure!(self.balances[sender] >= amount);
-        
-        self.balances[sender] -= amount;
-        self.balances[to] += amount;
-        
-        emit Transfer(sender, to, amount);
-        Ok(())
-    }
-}</code></pre>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#docs">Documentation</a>
+                <a href="#community">Community</a>
+                <a href="https://github.com/Stremax-Team/streamax" class="button button-primary">GitHub</a>
             </div>
         </div>
-    </section>
+    </nav>
 
-    <!-- Features -->
-    <section id="features" class="features">
-        <div class="container">
-            <h2>Why Stremax?</h2>
-            <div class="feature-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">🛡️</div>
-                    <h3>Safety First</h3>
-                    <p>Built-in formal verification, strong type system, and comprehensive security features</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">⚡</div>
-                    <h3>High Performance</h3>
-                    <p>Zero-cost abstractions, efficient memory management, and optimized for blockchain operations</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🔗</div>
-                    <h3>Blockchain Native</h3>
-                    <p>First-class blockchain types, smart contract primitives, and cross-chain interoperability</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🎯</div>
-                    <h3>Developer Experience</h3>
-                    <p>Modern syntax, rich IDE support, and comprehensive tooling</p>
+    <main>
+        <section class="hero">
+            <div class="hero-content">
+                <h1>The Modern Blockchain Programming Language</h1>
+                <p class="hero-subtitle">
+                    Build secure, efficient, and scalable blockchain applications with zero-knowledge proof integration
+                </p>
+                <div class="hero-actions">
+                    <a href="#get-started" class="button button-primary">Get Started</a>
+                    <a href="#docs" class="button">Documentation</a>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
 
-    <!-- Getting Started -->
-    <section id="get-started" class="get-started">
-        <div class="container">
-            <h2>Get Started in Minutes</h2>
-            <div class="install-steps">
-                <div class="step">
-                    <h3>1. Install Stremax</h3>
-                    <pre><code>curl -sSf https://stremax.io/install.sh | sh</code></pre>
+        <section id="features" class="features">
+            <div class="container">
+                <h2>Features</h2>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🛡️</div>
+                        <h3>Safety First</h3>
+                        <p>Strong static typing, linear types, and built-in formal verification</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h3>High Performance</h3>
+                        <p>Zero-cost abstractions and efficient memory management</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🔗</div>
+                        <h3>Blockchain Native</h3>
+                        <p>First-class blockchain types and smart contract primitives</p>
+                    </div>
                 </div>
-                <div class="step">
-                    <h3>2. Create a New Project</h3>
-                    <pre><code>strm new my_project
+            </div>
+        </section>
+
+        <section id="get-started" class="get-started">
+            <div class="container">
+                <h2>Get Started</h2>
+                <div class="install-steps">
+                    <div class="step">
+                        <h3>1. Install Stremax</h3>
+                        <pre><code>curl -sSf https://stremax-team.github.io/streamax/install.sh | sh</code></pre>
+                    </div>
+                    <div class="step">
+                        <h3>2. Create a New Project</h3>
+                        <pre><code>strm new my_project
 cd my_project</code></pre>
+                    </div>
+                    <div class="step">
+                        <h3>3. Build and Run</h3>
+                        <pre><code>strm build
+strm run</code></pre>
+                    </div>
                 </div>
-                <div class="step">
-                    <h3>3. Build and Deploy</h3>
-                    <pre><code>strm build
-strm deploy</code></pre>
+            </div>
+        </section>
+
+        <section id="docs" class="docs">
+            <div class="container">
+                <h2>Documentation</h2>
+                <div class="docs-grid">
+                    <a href="docs/getting-started.html" class="card">
+                        <h3>Getting Started</h3>
+                        <p>Learn the basics of Stremax programming</p>
+                    </a>
+                    <a href="docs/guide.html" class="card">
+                        <h3>Language Guide</h3>
+                        <p>Comprehensive language documentation</p>
+                    </a>
+                    <a href="docs/examples/" class="card">
+                        <h3>Examples</h3>
+                        <p>Real-world examples and tutorials</p>
+                    </a>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
 
-    <!-- Documentation -->
-    <section id="docs" class="docs">
-        <div class="container">
-            <h2>Comprehensive Documentation</h2>
-            <div class="docs-grid">
-                <a href="docs/getting-started.html" class="card">
-                    <h3>Getting Started</h3>
-                    <p>Learn the basics and write your first smart contract</p>
-                </a>
-                <a href="docs/language-spec.html" class="card">
-                    <h3>Language Guide</h3>
-                    <p>Detailed language specification and features</p>
-                </a>
-                <a href="docs/examples.html" class="card">
-                    <h3>Examples</h3>
-                    <p>Real-world examples and best practices</p>
-                </a>
-                <a href="docs/api.html" class="card">
-                    <h3>API Reference</h3>
-                    <p>Complete API documentation and guides</p>
-                </a>
+        <section id="community" class="community">
+            <div class="container">
+                <h2>Join the Community</h2>
+                <p>Get involved with Stremax development and connect with other developers</p>
+                <div class="community-links">
+                    <a href="https://github.com/Stremax-Team/streamax" class="button">GitHub</a>
+                    <a href="https://discord.gg/stremax" class="button">Discord</a>
+                    <a href="https://twitter.com/stremax_lang" class="button">Twitter</a>
+                </div>
             </div>
-        </div>
-    </section>
+        </section>
+    </main>
 
-    <!-- Community -->
-    <section id="community" class="community">
-        <div class="container">
-            <h2>Join the Community</h2>
-            <div class="community-links">
-                <a href="https://discord.gg/stremax" class="button">
-                    Discord
-                </a>
-                <a href="https://twitter.com/stremax_lang" class="button">
-                    Twitter
-                </a>
-                <a href="https://reddit.com/r/stremax" class="button">
-                    Reddit
-                </a>
-                <a href="https://blog.stremax.io" class="button">
-                    Blog
-                </a>
-            </div>
-        </div>
-    </section>
-
-    <!-- Footer -->
     <footer class="footer">
         <div class="container">
             <div class="footer-content">
-                <div class="footer-logo">
-                    <img src="assets/branding/stremax-logo.svg" alt="Stremax Logo" height="30">
+                <div class="footer-brand">
+                    <img src="assets/branding/favicon.svg" alt="Stremax Logo">
+                    <p>Building the future of blockchain development</p>
                 </div>
                 <div class="footer-links">
                     <div class="footer-section">
                         <h4>Documentation</h4>
                         <ul>
                             <li><a href="docs/getting-started.html">Getting Started</a></li>
-                            <li><a href="docs/tutorials.html">Tutorials</a></li>
-                            <li><a href="docs/api.html">API Reference</a></li>
-                            <li><a href="docs/examples.html">Examples</a></li>
+                            <li><a href="docs/guide.html">Language Guide</a></li>
+                            <li><a href="docs/api-reference.html">API Reference</a></li>
                         </ul>
                     </div>
                     <div class="footer-section">
                         <h4>Community</h4>
                         <ul>
-                            <li><a href="https://github.com/stremax-Team/stremax">GitHub</a></li>
+                            <li><a href="https://github.com/Stremax-Team/streamax">GitHub</a></li>
                             <li><a href="https://discord.gg/stremax">Discord</a></li>
                             <li><a href="https://twitter.com/stremax_lang">Twitter</a></li>
-                            <li><a href="https://blog.stremax.io">Blog</a></li>
                         </ul>
                     </div>
                     <div class="footer-section">
                         <h4>Resources</h4>
                         <ul>
                             <li><a href="security.html">Security</a></li>
-                            <li><a href="roadmap.html">Roadmap</a></li>
-                            <li><a href="brand.html">Brand Assets</a></li>
-                            <li><a href="careers.html">Careers</a></li>
+                            <li><a href="privacy.html">Privacy Policy</a></li>
+                            <li><a href="terms.html">Terms of Use</a></li>
                         </ul>
                     </div>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2025 Stremax-Team. All rights reserved.</p>
+                <p>&copy; 2024 Stremax Team. All rights reserved.</p>
                 <div class="footer-legal">
-                    <a href="privacy.html">Privacy Policy</a>
-                    <a href="terms.html">Terms of Service</a>
+                    <a href="privacy.html">Privacy</a>
+                    <a href="terms.html">Terms</a>
                 </div>
             </div>
         </div>
